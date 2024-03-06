@@ -1,0 +1,7 @@
+boto3
+loguru
+transformers
+hf-transfer
+packaging
+wandb
+accelerate
