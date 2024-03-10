@@ -10,7 +10,7 @@
 2. Docker build:
 This is the standard docker build. Use Runpod's dockerhub to build and push models.
 ```
-    sudo docker build --no-cache -t benchmarks:latest .
+    sudo docker build --no-cache -t benchmark:latest .
 ```
 There are a few different types of docker that you can build. For a heavier version (which optimizes for runtime), you can build using the Dockerfile.heavy file. For H100s, they do not work with the standard mpi4py installation, so we need to build using the Dockerfile.H100 file.
 
