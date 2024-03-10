@@ -9,6 +9,8 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --upgrade pip
-RUN pip install -r requirements.txt
+RUN pip install -r requirements_H100.txt
 
 CMD ["python3", "script.py"]
+
+# To build for H100s, comment out the mpi4py installation in requirements.txt
