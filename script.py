@@ -17,6 +17,7 @@ def shell_cmd(command, env={}):
             for k, v in env.items():
                 all_envs[k] = v
         logger.info(f"running command: { ' '.join(command) }")
+        logger.info(f"env vars: {env}")
         result = subprocess.run(command, capture_output=True, text=True, env=all_envs)
 
         if result.returncode != 0:
@@ -40,31 +41,31 @@ def setup_inference_dependencies():
     command = ["pip", "install", "-e", "vllm/"]
     return shell_cmd(command)
 
-def setup_finetune_dependencies():
-    command = ["pip", "install", "-e", "axolotl/[flash-attn,deepspeed]"]
-    return shell_cmd(command)
-
 def run_command(command):
     res = subprocess.run(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     if res.returncode != 0:
         return None, res.stderr.strip()
     return res.stdout.strip(), None
 
+def setup_finetune_dependencies():
+    command = ["pip", "install", "-e", "axolotl/[flash-attn,deepspeed]"]
+    return shell_cmd(command)
+
 def adjust_max_steps():
-    out, err = run_command(f'echo "max_steps: 30" | tee -a axolotl/examples/mistral/config.yml > /dev/null')
+    out, err = run_command(f'echo "\nmax_steps: 30" | tee -a axolotl/examples/mistral/config.yml > /dev/null')
     if err != None:
         return err
-    out, err = run_command(f'echo "max_steps: 30" | tee -a axolotl/examples/openllama-3b/lora.yml > /dev/null')
+    out, err = run_command(f'echo "\nmax_steps: 30" | tee -a axolotl/examples/openllama-3b/lora.yml > /dev/null')
     if err != None:
         return err
-    out, err = run_command(f'echo "max_steps: 30" | tee -a axolotl/examples/openllama-3b/config.yml > /dev/null')
+    out, err = run_command(f'echo "\nmax_steps: 30" | tee -a axolotl/examples/openllama-3b/config.yml > /dev/null')
     if err != None:
         return err
-    out, err = run_command(f'echo "max_steps: 30" | tee -a axolotl/examples/tiny-llama/qlora.yml > /dev/null')
+    out, err = run_command(f'echo "\nmax_steps: 30" | tee -a axolotl/examples/tiny-llama/qlora.yml > /dev/null')
     if err != None:
         return err
     # eval_sample_packing: False
-    out, err = run_command(f'echo "eval_sample_packing: False" | tee -a axolotl/examples/tiny-llama/qlora.yml > /dev/null')
+    out, err = run_command(f'echo "\neval_sample_packing: False" | tee -a axolotl/examples/tiny-llama/qlora.yml > /dev/null')
     if err != None:
         return err
     out, err = run_command(f"sed -i 's/micro_batch_size: 2/micro_batch_size: 1/' axolotl/examples/tiny-llama/qlora.yml")
@@ -87,22 +88,6 @@ def get_vram():
 
     return math.ceil(vram_gb)
 
-def get_total_vram():
-    pynvml.nvmlInit()
-    device_count = pynvml.nvmlDeviceGetCount()
-    total_vram = 0
-
-    for i in range(device_count):
-        handle = pynvml.nvmlDeviceGetHandleByIndex(i)
-        mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-        total_vram += mem_info.total
-
-    pynvml.nvmlShutdown()
-
-    total_vram_gb = total_vram / (1024 ** 3)
-    return total_vram_gb
-
-
 def get_gpu_series_name():
     pynvml.nvmlInit()
     handle = pynvml.nvmlDeviceGetHandleByIndex(0)
@@ -112,7 +97,7 @@ def get_gpu_series_name():
 def get_finetune_config(vram):
     if vram >= 32:
         return "axolotl/examples/openllama-3b/config.yml"
-    elif vram >= 16:
+    elif vram >= 8:
         return "axolotl/examples/openllama-3b/lora.yml"
     else:
         return "axolotl/examples/tiny-llama/qlora.yml"
@@ -159,9 +144,9 @@ def run_single_gpu_finetune(device_count):
     return outputs, "\n".join(errors) if len(errors) > 0 else None
 
 def run_multi_gpu_finetune(device_count):
-    total_vram = get_total_vram()
+    total_vram = get_vram()
     config = get_finetune_config(total_vram)
-    command = ["accelerate", "launch", "-m", "axolotl.cli.train", config, f"--num_processes={device_count}", "--deepspeed=axolotl/deepspeed_configs/zero1.json"]
+    command = ["accelerate", "launch", "-m", "axolotl.cli.train", config]
     out, err = shell_cmd(command)
     if err != None:
         return None, err
@@ -341,16 +326,15 @@ def main():
             return
 
         payload = {}
+        setup_dependencies_out, setup_dependencies_errors = setup_inference_dependencies()
+        if setup_dependencies_errors != None:
+            logger.info("errored during inference dependencies installation")
+            logger.error(setup_dependencies_errors)
+            send_response(client, aws_topic_arn, {"errors": [setup_dependencies_errors]})
+            return
 
         ## inference starts
         if os.environ.get("RUN_INFERENCE", "true") == "true":
-            setup_dependencies_out, setup_dependencies_errors = setup_inference_dependencies()
-            if setup_dependencies_errors != None:
-                logger.info("errored during inference dependencies installation")
-                logger.error(setup_dependencies_errors)
-                send_response(client, aws_topic_arn, {"errors": [setup_dependencies_errors]})
-                return
-
             if os.environ.get("RUN_MULTI_INFERENCE", "true") == "true":
                 multi_gpu_inference_output, multi_gpu_inference_errors = run_multi_gpu_inference(device_count)
                 if multi_gpu_inference_errors != None:
