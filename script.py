@@ -12,13 +12,13 @@ import math
 
 def shell_cmd(command, env={}):
     try:
-        all_envs = os.environ.copy()
+        global_envs = os.environ.copy()
         if env:
             for k, v in env.items():
-                all_envs[k] = v
+                global_envs[k] = v
         logger.info(f"running command: { ' '.join(command) }")
         logger.info(f"env vars: {env}")
-        result = subprocess.run(command, capture_output=True, text=True, env=all_envs)
+        result = subprocess.run(command, capture_output=True, text=True, env=global_envs)
 
         if result.returncode != 0:
             logger.error(result.stderr.strip())
@@ -41,40 +41,40 @@ def setup_inference_dependencies():
     command = ["pip", "install", "-e", "vllm/"]
     return shell_cmd(command)
 
-def run_command(command):
+def setup_finetune_dependencies():
+    command = ["pip", "install", "-e", "axolotl/[flash-attn,deepspeed]"]
+    return shell_cmd(command)
+
+def run_single_shell_cmd(command):
     res = subprocess.run(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     if res.returncode != 0:
         return None, res.stderr.strip()
     return res.stdout.strip(), None
 
-def setup_finetune_dependencies():
-    command = ["pip", "install", "-e", "axolotl/[flash-attn,deepspeed]"]
-    return shell_cmd(command)
-
 def adjust_max_steps():
-    out, err = run_command(f'echo "\nmax_steps: 30" | tee -a axolotl/examples/mistral/config.yml > /dev/null')
+    out, err = run_single_shell_cmd(f'echo "\nmax_steps: 30" | tee -a axolotl/examples/mistral/config.yml > /dev/null')
     if err != None:
         return err
-    out, err = run_command(f'echo "\nmax_steps: 30" | tee -a axolotl/examples/openllama-3b/lora.yml > /dev/null')
+    out, err = run_single_shell_cmd(f'echo "\nmax_steps: 30" | tee -a axolotl/examples/openllama-3b/lora.yml > /dev/null')
     if err != None:
         return err
-    out, err = run_command(f'echo "\nmax_steps: 30" | tee -a axolotl/examples/openllama-3b/config.yml > /dev/null')
+    out, err = run_single_shell_cmd(f'echo "\nmax_steps: 30" | tee -a axolotl/examples/openllama-3b/config.yml > /dev/null')
     if err != None:
         return err
-    out, err = run_command(f'echo "\nmax_steps: 30" | tee -a axolotl/examples/tiny-llama/qlora.yml > /dev/null')
+    out, err = run_single_shell_cmd(f'echo "\nmax_steps: 30" | tee -a axolotl/examples/tiny-llama/qlora.yml > /dev/null')
     if err != None:
         return err
-    # eval_sample_packing: False
-    out, err = run_command(f'echo "\neval_sample_packing: False" | tee -a axolotl/examples/tiny-llama/qlora.yml > /dev/null')
+    out, err = run_single_shell_cmd(f'echo "\neval_sample_packing: False" | tee -a axolotl/examples/tiny-llama/qlora.yml > /dev/null')
     if err != None:
         return err
-    out, err = run_command(f"sed -i 's/micro_batch_size: 2/micro_batch_size: 1/' axolotl/examples/tiny-llama/qlora.yml")
+    # reducing the batch size to ensure we support as many GPUs as possible
+    out, err = run_single_shell_cmd(f"sed -i 's/micro_batch_size: 2/micro_batch_size: 1/' axolotl/examples/tiny-llama/qlora.yml")
     if err != None:
         return err
-    out, err = run_command(f"sed -i 's/micro_batch_size: 2/micro_batch_size: 1/' axolotl/examples/openllama-3b/lora.yml")
+    out, err = run_single_shell_cmd(f"sed -i 's/micro_batch_size: 2/micro_batch_size: 1/' axolotl/examples/openllama-3b/lora.yml")
     if err != None:
         return err
-    out, err = run_command(f"sed -i 's/micro_batch_size: 2/micro_batch_size: 1/' axolotl/examples/openllama-3b/config.yml")
+    out, err = run_single_shell_cmd(f"sed -i 's/micro_batch_size: 2/micro_batch_size: 1/' axolotl/examples/openllama-3b/config.yml")
     if err != None:
         return err
     return None
@@ -94,6 +94,9 @@ def get_gpu_series_name():
     device_info = pynvml.nvmlDeviceGetName(handle)
     return device_info
 
+# TODO: in the future, add mistral as well. You will need like 26+ GBs of GPU to run it.
+# Also, split this into two functions: one that calculates the config for isolated runs
+# and one that does for multi-GPU runs. For the MVP, this is simple
 def get_finetune_config(vram):
     if vram >= 32:
         return "axolotl/examples/openllama-3b/config.yml"
@@ -143,9 +146,11 @@ def run_single_gpu_finetune(device_count):
                     errors.append(f"Could not find benchmarks for finetuning for device: {i}")
     return outputs, "\n".join(errors) if len(errors) > 0 else None
 
-def run_multi_gpu_finetune(device_count):
-    total_vram = get_vram()
-    config = get_finetune_config(total_vram)
+# In the future, we want to select bigger models for multi-GPU finetune. For now, keeping it simple and 
+# selecting the same model as for isolated runs
+def run_multi_gpu_finetune():
+    vram = get_vram()
+    config = get_finetune_config(vram)
     command = ["accelerate", "launch", "-m", "axolotl.cli.train", config]
     out, err = shell_cmd(command)
     if err != None:
@@ -156,7 +161,7 @@ def run_multi_gpu_finetune(device_count):
             updated_pattern = r"{'train_runtime': ([\d.]+), 'train_samples_per_second': ([\d.]+), 'train_steps_per_second': ([\d.]+), 'train_loss': ([\d.]+), 'epoch': ([\d.]+)}"
             match = re.search(updated_pattern, sentence)
             if match:
-                logger.info("last sentence", sentence)
+                logger.info("matched sentence", sentence)
                 train_runtime = float(match.group(1))
                 train_samples_per_second = float(match.group(2))
                 train_steps_per_second = float(match.group(3))
@@ -168,6 +173,8 @@ def run_multi_gpu_finetune(device_count):
                     return { "train_runtime": train_runtime, "train_samples_per_second": train_samples_per_second, "train_steps_per_second": train_steps_per_second, "train_loss": train_loss, "epoch": epoch }, None
     return {}, f"Throughput and requests_per_s not found for all GPU finetune testing"
 
+# there is a limitation where you cannot finetune using an arbitrary number of GPUs. This is
+# something related to the way that transformers is setup
 def get_parallel_size_accounting_for_attn_head(device_count):
     possible_parallel_size = [32,16,8,4,2,1]
     for p_size in possible_parallel_size:
@@ -191,6 +198,7 @@ def run_single_gpu_inference(device_count):
                    "--dataset=ShareGPT_V3_unfiltered_cleaned_split.json", f"--model={model}",
                     "--num-prompts=30", f"--max-model-len={max_model_len}",
                    "--device=cuda", "--enforce-eager", "--gpu-memory-utilization=0.95"]
+        # tokenizer for mistral
         if vram >= 12:
             command.append("--tokenizer=hf-internal-testing/llama-tokenizer")
         if "V100" in gpu_series_name:
@@ -325,6 +333,8 @@ def main():
             send_response(client, aws_topic_arn, {"errors": [download_dataset_errors]})
             return
 
+        # you need to setup inference dependencies even when only running finetune because
+        # this downloads the proper version of bits and bytes
         payload = {}
         setup_dependencies_out, setup_dependencies_errors = setup_inference_dependencies()
         if setup_dependencies_errors != None:
@@ -375,7 +385,7 @@ def main():
                 return
             
             if os.environ.get("RUN_MULTI_FINETUNE", "true") == "true":
-                multi_gpu_finetune_output, multi_gpu_finetune_errors = run_multi_gpu_finetune(device_count)
+                multi_gpu_finetune_output, multi_gpu_finetune_errors = run_multi_gpu_finetune()
                 if multi_gpu_finetune_errors != None:
                     logger.info("errored during multi gpu finetune")
                     logger.error(multi_gpu_finetune_errors)

@@ -12,3 +12,6 @@
 ```
     sudo docker build --no-cache -t benchmarks:latest .
 ```
+
+
+python3 vllm/benchmarks/benchmark_throughput.py --dataset=ShareGPT_V3_unfiltered_cleaned_split.json --model=mistralai/Mistral-7B-Instruct-v0.1 --num-prompts=30 --max-model-len=8192 --device=cuda --enforce-eager --gpu-memory-utilization=0.95 --tensor-parallel-size=8

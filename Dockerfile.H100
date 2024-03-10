@@ -12,3 +12,5 @@ RUN pip install --upgrade pip
 RUN pip install -r requirements.txt
 
 CMD ["python3", "script.py"]
+
+# also remove the mpi4py installation from the requirements.txt file.
