@@ -11,5 +11,7 @@ RUN apt-get update && apt-get install -y \
 
 RUN pip install --upgrade pip
 RUN pip install -r requirements.txt
+RUN pip install -e vllm/
+RUN pip install -e axolotl/[flash-attn,deepspeed]
 
-CMD ["python3", "script.py"]
+CMD ["python3", "-m", "http.server"]
