@@ -7,14 +7,8 @@
     git clone https://github.com/vllm-project/vllm.git
 ```
 
-2. Manually change the number of iterations inside axolotl/examples/openllama-3b/lora.yml. Add:
-```yml
-    max_steps: 100
-```
-If you don't, you will enter a 4 hour finetuning loop.
-
-3. Docker build:
+2. Docker build:
 
 ```
-    sudo docker build -t --no-cache benchmarks:latest .
+    sudo docker build --no-cache -t benchmarks:latest .
 ```
