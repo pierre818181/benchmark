@@ -401,4 +401,5 @@ def main():
         send_response(client, aws_topic_arn, {"errors": [str(e)]})
 
 if __name__ == "__main__":
+    # use this for testing
     main()
