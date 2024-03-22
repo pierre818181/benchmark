@@ -198,7 +198,7 @@ def check_for_h100_topo_p2p():
             break
 
     lines_with_results = topo_table[start_idx + 1:end_idx + 1]
-    mapping = defaultdict(list)
+    mapping = defaultdict(str)
     for device_id, line in enumerate(lines_with_results):
         topo_results = line.split("\t")
         results_strip_excess_info = topo_results[:len(table_headers) + 1]
@@ -206,7 +206,7 @@ def check_for_h100_topo_p2p():
             # peer_device_id = 0 is the column name
             if peer_device_id == 0 or topo_value == "X":
                 continue
-            mapping[(device_id, peer_device_id - 1)].append(topo_value)
+            mapping[f"{device_id}-{peer_device_id - 1}"] = topo_value
     logger.info("Found topo p2p mapping for H100 GPU")
     logger.info(mapping)
     return mapping, None
