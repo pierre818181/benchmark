@@ -454,7 +454,7 @@ def main():
                 payload["errors"] = [mapping_err]
                 send_response(client, aws_topic_arn, payload)
                 return
-            payload["topoP2PMapping"] = mapping.__dict__
+            payload["topoP2PMapping"] = dict(mapping)
 
         logger.info("""This is the combined results of all the inference and finetune combined together.
             This will tell you the output of the single inference + multi inference + single finetune 
