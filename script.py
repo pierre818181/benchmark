@@ -1,5 +1,6 @@
 import re
 import subprocess
+import sys
 import torch
 import os
 import boto3
@@ -9,6 +10,9 @@ import time
 from collections import defaultdict
 import pynvml
 import math
+
+logger.remove()
+logger.add(sink=sys.stdout, colorize=True)
 
 def shell_cmd(command, env={}):
     try:
@@ -127,7 +131,6 @@ def run_single_gpu_finetune(device_count):
                     updated_pattern = r"{'train_runtime': ([\d.]+), 'train_samples_per_second': ([\d.]+), 'train_steps_per_second': ([\d.]+), 'train_loss': ([\d.]+), 'epoch': ([\d.]+)}"
                     match = re.search(updated_pattern, sentence)
                     if match:
-                        logger.info(f"matched sentence: { sentence }")
                         train_runtime = float(match.group(1))
                         train_samples_per_second = float(match.group(2))
                         train_steps_per_second = float(match.group(3))
@@ -136,7 +139,6 @@ def run_single_gpu_finetune(device_count):
                         if train_runtime or train_samples_per_second or train_steps_per_second or train_loss or epoch:
                             outputs.append({ "id": i, "train_runtime": train_runtime, "train_samples_per_second": train_samples_per_second, "train_steps_per_second": train_steps_per_second, "train_loss": train_loss, "epoch": epoch })
                             found = True
-                            logger.info("found responses")
                             logger.info({ "id": i, "train_runtime": train_runtime, "train_samples_per_second": train_samples_per_second, "train_steps_per_second": train_steps_per_second, "train_loss": train_loss, "epoch": epoch })
                 if not found:
                     errors.append(f"Could not find benchmarks for finetuning for device: {i}")
@@ -156,7 +158,6 @@ def run_multi_gpu_finetune(device_count):
             updated_pattern = r"{'train_runtime': ([\d.]+), 'train_samples_per_second': ([\d.]+), 'train_steps_per_second': ([\d.]+), 'train_loss': ([\d.]+), 'epoch': ([\d.]+)}"
             match = re.search(updated_pattern, sentence)
             if match:
-                logger.info("last sentence", sentence)
                 train_runtime = float(match.group(1))
                 train_samples_per_second = float(match.group(2))
                 train_steps_per_second = float(match.group(3))
@@ -206,7 +207,8 @@ def check_for_h100_topo_p2p():
             if peer_device_id == 0 or topo_value == "X":
                 continue
             mapping[(device_id, peer_device_id - 1)].append(topo_value)
-    logger.info("Found topo p2p mapping for H100 GPU", mapping)
+    logger.info("Found topo p2p mapping for H100 GPU")
+    logger.info(mapping)
     return mapping, None
 
 def run_single_gpu_inference(device_count):
@@ -241,12 +243,10 @@ def run_single_gpu_inference(device_count):
                 match = re.search(pattern, sentence)
                 if match:
                     found = True
-                    logger.info(f"matched sentence: { sentence }")
                     throughput = float(match.group(1))
                     requests_per_s = float(match.group(2))
                     if throughput or requests_per_s:
                         outputs.append({ "id": i, "throughput": throughput, "requests_per_s": requests_per_s })
-                        logger.info("found throughput and requests_per_s")
                         logger.info({ "id": i, "throughput": throughput, "requests_per_s": requests_per_s })
             if not found:
                 errors.append(f"Throughput and requests_per_s not found for device: { i }")
@@ -284,15 +284,9 @@ def run_multi_gpu_inference(device_count):
             # Search for matches
             match = re.search(pattern, sentence)
             if match:
-                logger.info("matched")
-                logger.info(match)
-                logger.info(f"matched sentence: { sentence }")
                 throughput = float(match.group(1))
                 requests_per_s = float(match.group(2))
-                logger.info(throughput)
-                logger.info(requests_per_s)
                 if throughput or requests_per_s:
-                    logger.info("found throughput and requests_per_s")
                     logger.info({ "throughput": throughput, "requests_per_s": requests_per_s })
                     return { "throughput": throughput, "requests_per_s": requests_per_s }, None
     return {}, f"Throughput and requests_per_s not found for all GPU inference testing"
@@ -303,7 +297,7 @@ def send_response(client, topic_arn, message):
     if message.get("errors", None) != None:
         message["errors"] = ";".join(message["errors"])[-3000:]
     
-    logger.info("sending response")
+    logger.info("sending response to sns topic")
     logger.info(json.dumps(message))
     logger.info(message)
     response = client.publish(
@@ -344,8 +338,6 @@ def main():
                                     })
                 return
         client = initialize_aws_client(aws_key_id, aws_secret_access_key, "us-east-1")
-
-        logger.add(colorize=True)
 
         logger.info("""The benchmark works by running inference and finetune. Individual inference are run
                     on each GPUs. Then, multi-gpu inference is run. After that, finetune is run on each GPUs.
@@ -462,12 +454,12 @@ def main():
                 payload["errors"] = [mapping_err]
                 send_response(client, aws_topic_arn, payload)
                 return
-            payload["topoP2PMapping"] = mapping
+            payload["topoP2PMapping"] = mapping.__dict__
 
         logger.info("""This is the combined results of all the inference and finetune combined together.
             This will tell you the output of the single inference + multi inference + single finetune 
             + multi finetune. Please compare the results for the individual GPUs with the baseline we have.
-            """, payload)
+            """)
 
         logger.info("sending payload", payload)
         send_response(client, aws_topic_arn, payload)
