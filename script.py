@@ -16,8 +16,7 @@ def shell_cmd(command, env={}):
         if env:
             for k, v in env.items():
                 global_envs[k] = v
-        logger.info(f"running command: { ' '.join(command) }")
-        logger.info(f"env vars: {env}")
+        logger.info(f"running command: { ' '.join(command) }; env vars: {env}")
         result = subprocess.run(command, capture_output=True, text=True, env=global_envs)
 
         if result.returncode != 0:
@@ -176,6 +175,40 @@ def get_parallel_size_accounting_for_attn_head(device_count):
     
     return 1
 
+def check_for_h100_topo_p2p():
+    out, err = run_single_shell_cmd("nvidia-smi topo -p2p r")
+    if err != None:
+        return None, err
+    expected_device_count = int(os.environ.get("RUNPOD_GPU_COUNT", None))
+    table_headers = [f"GPU{i}" for i in range(int(expected_device_count))]
+    topo_table = out.split("\n")
+    start_idx = 0
+    end_idx = 1
+
+    for device_id, line in enumerate(topo_table):
+        count_of_headers = 0
+        for th in table_headers:
+            if th in line:
+                count_of_headers += 1
+        if count_of_headers == expected_device_count:
+            start_idx = device_id
+        if table_headers[-1] in line and start_idx != device_id:
+            end_idx = device_id
+            break
+
+    lines_with_results = topo_table[start_idx + 1:end_idx + 1]
+    mapping = defaultdict(str)
+    for device_id, line in enumerate(lines_with_results):
+        topo_results = line.split("\t")
+        results_strip_excess_info = topo_results[:len(table_headers) + 1]
+        for peer_device_id, topo_value in enumerate(results_strip_excess_info):
+            # peer_device_id = 0 is the column name
+            if peer_device_id == 0 or topo_value == "X":
+                continue
+            mapping[f"GPU{device_id}-GPU{peer_device_id - 1}"] = topo_value
+    logger.info("Found topo p2p mapping for H100 GPU", mapping)
+    return mapping, None
+
 def run_single_gpu_inference(device_count):
     errors = []
     outputs = []
@@ -270,7 +303,7 @@ def send_response(client, topic_arn, message):
     if message.get("errors", None) != None:
         message["errors"] = ";".join(message["errors"])[-3000:]
     
-    logger.info("sending response")
+    logger.info("sending payload to SNS topic")
     logger.info(json.dumps(message))
     logger.info(message)
     response = client.publish(
@@ -311,19 +344,30 @@ def main():
                                     })
                 return
         client = initialize_aws_client(aws_key_id, aws_secret_access_key, "us-east-1")
+        
+        logger.add(colorize=True)
 
+        logger.info("""The benchmark works by running inference and finetune. Individual inference are run
+                    on each GPUs. Then, multi-gpu inference is run. After that, finetune is run on each GPUs.
+                    Then, multi-gpu finetune is run. If it is H100 Pcie, we run the 'nvidia-smi topo -p2p r' command.
+                    The payload will then be sent to the SNS topic. Any subscriber of that topic should record the data
+                    that is sent.""")
         device_count = torch.cuda.device_count()
         if device_count != int(expected_device_count):
             logger.error(f"Expected {expected_device_count} GPUs, but found {device_count} GPUs")
             send_response(client, aws_topic_arn, {"errors": [f"Expected {expected_device_count} GPUs, but found {device_count} GPUs"]})
             return
 
+        logger.info("""Downloading dataset to run inference. This usually takes like 10 seconds or so. Slower downloads
+                    indicate network issues.""")
         download_dataset_out, download_dataset_errors = download_dataset()
         if download_dataset_errors != None:
             logger.error(download_dataset_errors)
             send_response(client, aws_topic_arn, {"errors": [download_dataset_errors]})
             return
 
+        logger.info("""Downloading inference dependencies from vllm using Python's pip package manager. 
+                    This usually takes a bit of time. So maintain patience.""")
         payload = {}
         setup_dependencies_out, setup_dependencies_errors = setup_inference_dependencies()
         if setup_dependencies_errors != None:
@@ -334,7 +378,9 @@ def main():
 
         ## inference starts
         if os.environ.get("RUN_INFERENCE", "true") == "true":
+            logger.info("Running inference. This can be disabled by using the environment variable RUN_INFERENCE=false.")
             if os.environ.get("RUN_MULTI_INFERENCE", "true") == "true":
+                logger.info("Running multi gpu inference. This takes a bit of time. You will see the combined output at the end.")
                 multi_gpu_inference_output, multi_gpu_inference_errors = run_multi_gpu_inference(device_count)
                 if multi_gpu_inference_errors != None:
                     logger.info("errored during multi gpu inference")
@@ -345,6 +391,9 @@ def main():
                 payload["multiGpuInferenceResult"] = multi_gpu_inference_output
             
             if os.environ.get("RUN_ISOLATED_INFERENCE", "true") == "true":
+                logger.info("""Running single gpu inference. This takes a bit of time because we are running inference on each GPU
+                            one by one. For each GPU, the results will be output in a dictionary with througput
+                            and requests_per_s as the keys. The results will be stored in the payload.""")
                 single_gpu_inference_outputs, single_gpu_inference_errors = run_single_gpu_inference(device_count)
                 if single_gpu_inference_errors != None:
                     logger.info("errored during single gpu inference")
@@ -357,6 +406,8 @@ def main():
 
         ### training
         if os.environ.get("RUN_FINETUNE", "true") == "true":
+            logger.info("""Running finetune on the GPUs. First of all, installing pip dependencies.
+                         This can be disabled by using the environment variable RUN_FINETUNE=false.""")
             setup_lora_dependencies_output, setup_finetune_dependencies_errors = setup_finetune_dependencies()
             if setup_finetune_dependencies_errors != None:
                 logger.info("errored during finetune dependencies installation")
@@ -365,6 +416,8 @@ def main():
                 send_response(client, aws_topic_arn, payload)
                 return
             
+            logger.info("""The finetunes are intended to run completely i.e. on an entire dataset. To save some time, we are 
+                        manually set the max_steps to 30.""")
             adjust_max_steps_err = adjust_max_steps()
             if adjust_max_steps_err != None:
                 logger.info("errored when adjusting max steps")
@@ -374,6 +427,8 @@ def main():
                 return
             
             if os.environ.get("RUN_MULTI_FINETUNE", "true") == "true":
+                logger.info("""Running multi gpu finetune. This takes a bit of time. You will see the combined output at the end. 
+                            This can be disabled by using the environment variable RUN_MULTI_FINETUNE=false.""")
                 multi_gpu_finetune_output, multi_gpu_finetune_errors = run_multi_gpu_finetune(device_count)
                 if multi_gpu_finetune_errors != None:
                     logger.info("errored during multi gpu finetune")
@@ -384,6 +439,9 @@ def main():
                 payload["multiGpuFinetuneResults"] = multi_gpu_finetune_output
 
             if os.environ.get("RUN_ISOLATED_FINETUNE", "true") == "true":
+                logger.info("""Running isolated finetune on each GPUs. This takes a bit of time. 
+                            You will see individual output at the end. 
+                            This can be disabled by using the environment variable RUN_ISOLATED_FINETUNE=false.""")
                 single_gpu_finetune_outputs, single_gpu_finetune_errors = run_single_gpu_finetune(device_count)
                 if single_gpu_finetune_errors != None:
                     logger.info("errored during single gpu finetune")
@@ -392,9 +450,23 @@ def main():
                     send_response(client, aws_topic_arn, payload)
                     return
                 payload["singleGpuFinetuneResults"] = single_gpu_finetune_outputs
+        
         ### training ends
+        device_name = get_gpu_series_name()
+        if device_name == "NVIDIA H100 80GB HBM3":
+            logger.info("""Device is a NVIDIA H100 80GB HBM3. Running command 'nvidia-smi topo -p2p r' on it to identify topological values.""")
+            mapping, mapping_err = check_for_h100_topo_p2p()
+            if mapping_err != None:
+                payload["errors"] = [mapping_err]
+                send_response(client, aws_topic_arn, payload)
+                return
+            payload["topoP2PMapping"] = mapping
 
-        logger.info("sending payload", payload)
+        logger.info("""This is the combined results of all the inference and finetune combined together.
+                    This will tell you the output of the single inference + multi inference + single finetune 
+                    + multi finetune. Please compare the results for the individual GPUs with the baseline we have.
+                    """)
+        logger.info(payload)
         send_response(client, aws_topic_arn, payload)
     except Exception as e:
         logger.exception(f"Exception {str(e)}")

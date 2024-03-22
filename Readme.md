@@ -25,4 +25,5 @@ Use this HF spaces to pick the right model for inference and fine-tuning:
 ```
 
 ## Known issues
-For extremely small machine sizes (<= 2x A2000), the benchmark will not work. This is because installing vllm requires some amount of RAM and these machines might not have it. But we might never want to accept machines smaller than 3xA2000.
+- For extremely small machine sizes (<= 2x A2000), the benchmark will not work. This is because installing vllm requires some amount of RAM and these machines might not have it. But we might never want to accept machines smaller than 3xA2000.
+- Does not 
