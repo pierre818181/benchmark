@@ -1,5 +1,6 @@
 vllm/*
 axolotl/*
+scratch.py
 
 vllm
 axolotl
