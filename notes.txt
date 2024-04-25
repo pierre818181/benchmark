@@ -1,0 +1,13 @@
+- image: runpod/pytorch:2.2.0-py3.10-cuda12.1.1-devel-ubuntu22.04
+- sudo docker run --gpus 2 it runpod/pytorch:2.2.0-py3.10-cuda12.1.1-devel-ubuntu22.04 /bin/bash
+- sudo docker cp vllm $(CONTAINER_ID):/workspace
+- apt-get update && apt-get install -y git
+- apt-get install nano
+- nano requirements.txt // paste the requirements.txt
+- inside the container: pip install -e vllm/
+- git clone https://github.com/OpenAccess-AI-Collective/axolotl
+- cd axolotl
+- pip3 install packaging ninja
+- pip3 install -e '.[flash-attn,deepspeed]'
+- CUDA_VISIBLE_DEVICES="" python -m axolotl.cli.preprocess examples/openllama-3b/config.yml
+- accelerate launch -m axolotl.cli.train examples/openllama-3b/config.yml

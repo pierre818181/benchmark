@@ -44,6 +44,12 @@ def setup_inference_dependencies():
     command = ["pip", "install", "-e", "vllm/"]
     return shell_cmd(command)
 
+def preprocess_finetune_dataset():
+    vram = get_vram()
+    config = get_finetune_config(vram)  
+    command = ["python", "-m", "axolotl.cli.preprocess", config]
+    return shell_cmd(command, env={"CUDA_VISIBLE_DEVICES": ""})
+
 def setup_finetune_dependencies():
     command = ["pip", "install", "-e", "axolotl/[flash-attn,deepspeed]"]
     return shell_cmd(command)
@@ -417,6 +423,13 @@ def main():
                 logger.info("errored when adjusting max steps")
                 logger.error(adjust_max_steps_err)
                 payload["errors"] = [adjust_max_steps_err]
+                send_response(client, aws_topic_arn, payload)
+                return
+
+            preprocess_dataset_out, preprocess_dataset_err = preprocess_finetune_dataset()
+            if preprocess_dataset_err != None:
+                logger.error(preprocess_dataset_err)
+                payload["errors"] = [preprocess_dataset_err]
                 send_response(client, aws_topic_arn, payload)
                 return
             
