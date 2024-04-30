@@ -4,11 +4,3 @@
 [submodule "axolotl"]
 	path = axolotl
 	url = https://github.com/pierre818181/axolotl-clone.git
-[submodule "axolotll"]
-	path = axolotll
-	url = https://github.com/pierre818181/axolotl-clone.git
-	branch = main
-[submodule "vllm-clone"]
-	path = vllm-clone
-	url = https://github.com/pierre818181/vllm-clone.git
-	branch = main
