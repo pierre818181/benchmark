@@ -1,0 +1,6 @@
+[submodule "vllm"]
+	path = vllm
+	url = https://github.com/pierre818181/vllm-clone.git
+[submodule "axolotl"]
+	path = axolotl
+	url = https://github.com/pierre818181/axolotl-clone.git
