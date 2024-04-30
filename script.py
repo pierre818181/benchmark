@@ -51,7 +51,7 @@ def preprocess_finetune_dataset():
     return shell_cmd(command, env={"CUDA_VISIBLE_DEVICES": ""})
 
 def setup_finetune_dependencies():
-    command = ["pip", "install", "-e", "axolotl/[flash-attn,deepspeed]"]
+    command = ["conda", "activate", "-n", "axolotl"]
     return shell_cmd(command)
 
 def run_single_shell_cmd(command):
