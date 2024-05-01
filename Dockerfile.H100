@@ -11,24 +11,23 @@ RUN apt-get update && apt-get install -y \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
-RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /workspace/miniconda.sh && bash /workspace/miniconda.sh -b -p /opt/conda
-
-ENV PATH /opt/conda/bin:$PATH
-
-RUN conda update conda && conda create -n vllm python=3.10
-RUN conda init
-RUN source ~/.bashrc
-RUN conda activate vllm
-ENV PATH /opt/conda/envs/vllm/bin:$PATH
-RUN pip install -e vllm/
-
-RUN conda create -n axolotl -y
-RUN conda activate axolotl
-RUN pip install -e axolotl/[flash-attn,deepspeed]
-
 RUN pip install --upgrade pip
 RUN pip install -r requirements_H100.txt
 
-RUN conda activate vllm
+RUN mkdir -p ~/miniconda3 && \
+    wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ~/miniconda3/miniconda.sh && \
+    bash ~/miniconda3/miniconda.sh -b -u -p ~/miniconda3 && \
+    rm -rf ~/miniconda3/miniconda.sh
+
+RUN ~/miniconda3/bin/conda init bash
+
+RUN ~/miniconda3/bin/conda create -n axolotl python=3.10 -y && \
+    ~/miniconda3/bin/conda run -n axolotl pip install packaging torch ninja -v && \
+    ~/miniconda3/bin/conda run -n axolotl pip install -e axolotl/[flash-attn,deepspeed] -v && \
+    ~/miniconda3/bin/conda run -n axolotl pip install -r requirements_H100.txt
+
+RUN ~/miniconda3/bin/conda create -n vllm python=3.10 -y && \
+    ~/miniconda3/bin/conda run -n vllm pip install -e vllm/ -v && \
+    ~/miniconda3/bin/conda run -n vllm pip install -r requirements_H100.txt
 
 CMD ["python3", "script.py"]

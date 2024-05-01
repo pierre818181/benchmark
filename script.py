@@ -41,17 +41,25 @@ def download_dataset():
     return shell_cmd(command)
 
 def setup_inference_dependencies():
-    command = ["pip", "install", "-e", "vllm/"]
+    command = ["ls"]
+    return shell_cmd(command)
+
+def close_inference_dependencies():
+    command = ["ls"]
     return shell_cmd(command)
 
 def preprocess_finetune_dataset():
     vram = get_vram()
     config = get_finetune_config(vram)  
-    command = ["python", "-m", "axolotl.cli.preprocess", config]
+    command = ["conda", "run", "-n" "axolotl", "python", "-m", "axolotl.cli.preprocess", config]
     return shell_cmd(command, env={"CUDA_VISIBLE_DEVICES": ""})
 
 def setup_finetune_dependencies():
-    command = ["conda", "activate", "-n", "axolotl"]
+    command = ["ls"]
+    return shell_cmd(command)
+
+def close_finetune_dependencies():
+    command = ["ls"]
     return shell_cmd(command)
 
 def run_single_shell_cmd(command):
@@ -125,7 +133,7 @@ def run_single_gpu_finetune(device_count):
             out, err = subprocess.run(f"sed -i 's/flash_attention: true/flash_attention: false/' {config}", shell=True)
             if err != None:
                 return out, err
-        command = ["accelerate", "launch", "-m", "axolotl.cli.train", config,]
+        command = ["conda", "run", "-n" "axolotl", "accelerate", "launch", "-m", "axolotl.cli.train", config,]
         out, err = shell_cmd(command, env=command_envs)
         if err != None:
             errors.append(str(err))
@@ -154,7 +162,7 @@ def run_single_gpu_finetune(device_count):
 def run_multi_gpu_finetune(device_count):
     total_vram = get_vram()
     config = get_finetune_config(total_vram)
-    command = ["accelerate", "launch", "-m", "axolotl.cli.train", config]
+    command = ["conda", "run", "-n" "axolotl", "accelerate", "launch", "-m", "axolotl.cli.train", config]
     out, err = shell_cmd(command)
     if err != None:
         return None, err
@@ -228,7 +236,7 @@ def run_single_gpu_inference(device_count):
         command_envs = defaultdict(str)
         command_envs["CUDA_VISIBLE_DEVICES"] = f"{i}"
         command_envs["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
-        command = ["python3", "vllm/benchmarks/benchmark_throughput.py", 
+        command = ["conda", "run", "-n" "vllm", "python3", "vllm/benchmarks/benchmark_throughput.py", 
                    "--dataset=ShareGPT_V3_unfiltered_cleaned_split.json", f"--model={model}",
                     "--num-prompts=30", f"--max-model-len={max_model_len}",
                    "--device=cuda", "--enforce-eager", "--gpu-memory-utilization=0.95"]
@@ -269,7 +277,7 @@ def run_multi_gpu_inference(device_count):
     gpu_series_name = get_gpu_series_name()
     if device_count > 32:
         return None, f"Inference for devices with more than 32 GPUs not supported at once. Current GPU count: { device_count }"
-    command = ["python3", "vllm/benchmarks/benchmark_throughput.py", 
+    command = ["conda", "run", "-n" "vllm", "python3", "vllm/benchmarks/benchmark_throughput.py", 
             "--dataset=ShareGPT_V3_unfiltered_cleaned_split.json", f"--model={model}",
             "--num-prompts=30", f"--max-model-len={ max_model_len }", "--device=cuda", 
             f"--tensor-parallel-size={device_count_attn_heads}", "--enforce-eager", "--gpu-memory-utilization=0.95"]
@@ -404,6 +412,13 @@ def main():
                 payload["singleGpuInferenceResults"] = single_gpu_inference_outputs
         ## inference ends
 
+        setup_dependencies_close_out, setup_dependencies_close_errors = close_inference_dependencies()
+        if setup_dependencies_close_errors != None:
+            logger.info("errored when closing inference dependencies installation")
+            logger.error(setup_dependencies_close_errors)
+            send_response(client, aws_topic_arn, {"errors": [setup_dependencies_close_errors]})
+            return
+
         ### training
         if os.environ.get("RUN_FINETUNE", "true") == "true":
             logger.info("""Running finetune on the GPUs. First of all, installing pip dependencies.
@@ -457,6 +472,14 @@ def main():
                     send_response(client, aws_topic_arn, payload)
                     return
                 payload["singleGpuFinetuneResults"] = single_gpu_finetune_outputs
+
+            close_finetune_dependencies_output, close_finetune_dependencies_errors = close_finetune_dependencies()
+            if close_finetune_dependencies_errors != None:
+                logger.info("errored during finetune dependencies installation")
+                logger.error(close_finetune_dependencies_errors)
+                payload["errors"] = [close_finetune_dependencies_errors]
+                send_response(client, aws_topic_arn, payload)
+                return
         
         ### training ends        
         device_name = get_gpu_series_name()
