@@ -41,26 +41,22 @@ def download_dataset():
     return shell_cmd(command)
 
 def setup_inference_dependencies():
-    command = ["ls"]
-    return shell_cmd(command)
+    return "", None
 
 def close_inference_dependencies():
-    command = ["ls"]
-    return shell_cmd(command)
+    return "", None
 
 def preprocess_finetune_dataset():
     vram = get_vram()
     config = get_finetune_config(vram)  
-    command = ["conda", "run", "-n" "axolotl", "python", "-m", "axolotl.cli.preprocess", config]
+    command = ["/workspace/bin/conda", "run", "-n" "axolotlenv", "python", "-m", "axolotl.cli.preprocess", config]
     return shell_cmd(command, env={"CUDA_VISIBLE_DEVICES": ""})
 
 def setup_finetune_dependencies():
-    command = ["ls"]
-    return shell_cmd(command)
+    return "", None
 
 def close_finetune_dependencies():
-    command = ["ls"]
-    return shell_cmd(command)
+    return "", None
 
 def run_single_shell_cmd(command):
     res = subprocess.run(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -133,7 +129,7 @@ def run_single_gpu_finetune(device_count):
             out, err = subprocess.run(f"sed -i 's/flash_attention: true/flash_attention: false/' {config}", shell=True)
             if err != None:
                 return out, err
-        command = ["conda", "run", "-n" "axolotl", "accelerate", "launch", "-m", "axolotl.cli.train", config,]
+        command = ["/workspace/bin/conda", "run", "-n" "axolotlenv", "accelerate", "launch", "-m", "axolotl.cli.train", config,]
         out, err = shell_cmd(command, env=command_envs)
         if err != None:
             errors.append(str(err))
@@ -162,7 +158,7 @@ def run_single_gpu_finetune(device_count):
 def run_multi_gpu_finetune(device_count):
     total_vram = get_vram()
     config = get_finetune_config(total_vram)
-    command = ["conda", "run", "-n" "axolotl", "accelerate", "launch", "-m", "axolotl.cli.train", config]
+    command = ["/workspace/bin/conda", "run", "-n" "axolotlenv", "accelerate", "launch", "-m", "axolotl.cli.train", config]
     out, err = shell_cmd(command)
     if err != None:
         return None, err
@@ -236,7 +232,7 @@ def run_single_gpu_inference(device_count):
         command_envs = defaultdict(str)
         command_envs["CUDA_VISIBLE_DEVICES"] = f"{i}"
         command_envs["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
-        command = ["conda", "run", "-n" "vllm", "python3", "vllm/benchmarks/benchmark_throughput.py", 
+        command = ["/workspace/bin/conda", "run", "-n" "vllmenv", "python3", "vllm/benchmarks/benchmark_throughput.py", 
                    "--dataset=ShareGPT_V3_unfiltered_cleaned_split.json", f"--model={model}",
                     "--num-prompts=30", f"--max-model-len={max_model_len}",
                    "--device=cuda", "--enforce-eager", "--gpu-memory-utilization=0.95"]
@@ -277,7 +273,7 @@ def run_multi_gpu_inference(device_count):
     gpu_series_name = get_gpu_series_name()
     if device_count > 32:
         return None, f"Inference for devices with more than 32 GPUs not supported at once. Current GPU count: { device_count }"
-    command = ["conda", "run", "-n" "vllm", "python3", "vllm/benchmarks/benchmark_throughput.py", 
+    command = ["/workspace/bin/conda", "run", "-n" "vllmenv", "python3", "vllm/benchmarks/benchmark_throughput.py", 
             "--dataset=ShareGPT_V3_unfiltered_cleaned_split.json", f"--model={model}",
             "--num-prompts=30", f"--max-model-len={ max_model_len }", "--device=cuda", 
             f"--tensor-parallel-size={device_count_attn_heads}", "--enforce-eager", "--gpu-memory-utilization=0.95"]
