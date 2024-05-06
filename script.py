@@ -361,7 +361,7 @@ def main():
             send_response(client, aws_topic_arn, {"errors": [f"Expected {expected_device_count} GPUs, but found {device_count} GPUs"]})
             return
 
-        logger.info("""Downloading dataset to run inference. This usually takes like 10 seconds or so. Slower downloads
+        logger.info("""Downloading dataset to run inference. This usually takes like a minute or so. Slower downloads
                     indicate network issues.""")
 
         download_dataset_out, download_dataset_errors = download_dataset()
@@ -370,16 +370,8 @@ def main():
             send_response(client, aws_topic_arn, {"errors": [download_dataset_errors]})
             return
 
-        logger.info("""Downloading inference dependencies from vllm using Python's pip package manager. 
-                    This usually takes a bit of time. So maintain patience.""")
+        logger.info("""Activating inference conda environment to run inference. Dependencies were downloaded at build time.""")
         payload = {}
-        setup_dependencies_out, setup_dependencies_errors = setup_inference_dependencies()
-        if setup_dependencies_errors != None:
-            logger.info("errored during inference dependencies installation")
-            logger.error(setup_dependencies_errors)
-            send_response(client, aws_topic_arn, {"errors": [setup_dependencies_errors]})
-            return
-
         ## inference starts
         if os.environ.get("RUN_INFERENCE", "true") == "true":
             logger.info("Running inference. This can be disabled by using the environment variable RUN_INFERENCE=false.")
@@ -408,25 +400,8 @@ def main():
                 payload["singleGpuInferenceResults"] = single_gpu_inference_outputs
         ## inference ends
 
-        setup_dependencies_close_out, setup_dependencies_close_errors = close_inference_dependencies()
-        if setup_dependencies_close_errors != None:
-            logger.info("errored when closing inference dependencies installation")
-            logger.error(setup_dependencies_close_errors)
-            send_response(client, aws_topic_arn, {"errors": [setup_dependencies_close_errors]})
-            return
-
         ### training
-        if os.environ.get("RUN_FINETUNE", "true") == "true":
-            logger.info("""Running finetune on the GPUs. First of all, installing pip dependencies.
-                         This can be disabled by using the environment variable RUN_FINETUNE=false.""")
-            setup_lora_dependencies_output, setup_finetune_dependencies_errors = setup_finetune_dependencies()
-            if setup_finetune_dependencies_errors != None:
-                logger.info("errored during finetune dependencies installation")
-                logger.error(setup_finetune_dependencies_errors)
-                payload["errors"] = [setup_finetune_dependencies_errors]
-                send_response(client, aws_topic_arn, payload)
-                return
-            
+        if os.environ.get("RUN_FINETUNE", "true") == "true":            
             logger.info("""The finetunes are intended to run completely i.e. on an entire dataset. To save some time, we are 
                         manually set the max_steps to 30.""")
             adjust_max_steps_err = adjust_max_steps()
@@ -437,6 +412,7 @@ def main():
                 send_response(client, aws_topic_arn, payload)
                 return
 
+            logger.info("""Preprocessing finetune dataset. This is done inside the same environment that the axolotl is run.""")
             preprocess_dataset_out, preprocess_dataset_err = preprocess_finetune_dataset()
             if preprocess_dataset_err != None:
                 logger.error(preprocess_dataset_err)
@@ -468,14 +444,6 @@ def main():
                     send_response(client, aws_topic_arn, payload)
                     return
                 payload["singleGpuFinetuneResults"] = single_gpu_finetune_outputs
-
-            close_finetune_dependencies_output, close_finetune_dependencies_errors = close_finetune_dependencies()
-            if close_finetune_dependencies_errors != None:
-                logger.info("errored during finetune dependencies installation")
-                logger.error(close_finetune_dependencies_errors)
-                payload["errors"] = [close_finetune_dependencies_errors]
-                send_response(client, aws_topic_arn, payload)
-                return
         
         ### training ends        
         device_name = get_gpu_series_name()
