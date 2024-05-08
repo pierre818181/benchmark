@@ -36,9 +36,9 @@ def shell_cmd(command, env={}):
     except Exception as e:
         return None, str(e)
     
-def download_dataset():
-    command = ["wget", "https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered/resolve/main/ShareGPT_V3_unfiltered_cleaned_split.json"]
-    return shell_cmd(command)
+# def download_dataset():
+#     command = ["wget", "https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered/resolve/main/ShareGPT_V3_unfiltered_cleaned_split.json"]
+#     return shell_cmd(command)
 
 def setup_inference_dependencies():
     return "", None
@@ -364,11 +364,11 @@ def main():
         logger.info("""Downloading dataset to run inference. This usually takes like a minute or so. Slower downloads
                     indicate network issues.""")
 
-        download_dataset_out, download_dataset_errors = download_dataset()
-        if download_dataset_errors != None:
-            logger.error(download_dataset_errors)
-            send_response(client, aws_topic_arn, {"errors": [download_dataset_errors]})
-            return
+        # download_dataset_out, download_dataset_errors = download_dataset()
+        # if download_dataset_errors != None:
+        #     logger.error(download_dataset_errors)
+        #     send_response(client, aws_topic_arn, {"errors": [download_dataset_errors]})
+        #     return
 
         logger.info("""Activating inference conda environment to run inference. Dependencies were downloaded at build time.""")
         payload = {}

@@ -42,7 +42,7 @@ MACHINE_BENCHMARK_AWS_SECRET_ACCESS_KEY=asdad MACHINE_BENCHMARK_AWS_ACCESS_KEY_I
 -e RUN_INFERENCE=false \
 -e RUNPOD_GPU_COUNT=8 \
 -e RUNPOD_POD_ID=212313 \
-    --gpus all pierre781/benchmark:candidate
+    --gpus all pierre781/benchmark:latest
 ```
 
 ```bash

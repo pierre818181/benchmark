@@ -18,6 +18,8 @@ RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -
     bash /workspace/miniconda.sh -b -u -p /workspace && \
     rm -rf /workspace/miniconda.sh
 
+RUN wget https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered/resolve/main/ShareGPT_V3_unfiltered_cleaned_split.json
+
 RUN /workspace/bin/conda init bash
 
 RUN /workspace/bin/conda create -n axolotlenv python=3.10 -y && \
