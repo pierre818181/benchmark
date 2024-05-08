@@ -1,3 +1,5 @@
+# IMPORTANT: Please use the pierre/pin-axolotl branch
+
 # Initial setup
 
 1. Download vllm and axolotl to the root of this project:
