@@ -27,3 +27,33 @@ Use this HF spaces to pick the right model for inference and fine-tuning:
 ## Known issues
 - For extremely small machine sizes (<= 2x A2000), the benchmark will not work. This is because installing vllm requires some amount of RAM and these machines might not have it. But we might never want to accept machines smaller than 3xA2000.
 - Does not work with V100s because they are quite old and do not support some key functionalities.
+
+## Helpful scripts
+
+```bash
+MACHINE_BENCHMARK_AWS_SECRET_ACCESS_KEY=asdad MACHINE_BENCHMARK_AWS_ACCESS_KEY_ID=asdasd MACHINE_BENCHMARK_TOPIC_ARN=asdasd HF_TOKEN=asdad RUN_INFERENCE=false RUNPOD_GPU_COUNT=8 RUNPOD_POD_ID=212313 HF_TOKEN=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 python3 script.py
+```
+
+```bash
+    sudo docker run -e MACHINE_BENCHMARK_AWS_SECRET_ACCESS_KEY=asdad \
+-e MACHINE_BENCHMARK_AWS_ACCESS_KEY_ID=asdasd \
+-e MACHINE_BENCHMARK_TOPIC_ARN=asdasd \
+-e HF_TOKEN=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 \
+-e RUN_INFERENCE=false \
+-e RUNPOD_GPU_COUNT=8 \
+-e RUNPOD_POD_ID=212313 \
+    --gpus all pierre781/benchmark:candidate
+```
+
+```bash
+    conda run -n axolotlenv accelerate launch -m axolotl.cli.train axolotl/examples/openllama-3b/lora.yml
+```
+
+Include this in the docker image:
+```bash
+    conda run -n axolotl pip install flash_attn -U --force-reinstall
+```
+
+```bash
+    conda run -n axolotl python -m axolotl.cli.preprocess axolotl/examples/openllama-3b/config.yml
+```

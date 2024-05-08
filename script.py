@@ -41,18 +41,22 @@ def download_dataset():
     return shell_cmd(command)
 
 def setup_inference_dependencies():
-    command = ["pip", "install", "-e", "vllm/"]
-    return shell_cmd(command)
+    return "", None
+
+def close_inference_dependencies():
+    return "", None
 
 def preprocess_finetune_dataset():
     vram = get_vram()
     config = get_finetune_config(vram)  
-    command = ["python", "-m", "axolotl.cli.preprocess", config]
+    command = ["/workspace/bin/conda", "run", "-n" "axolotlenv", "python", "-m", "axolotl.cli.preprocess", config]
     return shell_cmd(command, env={"CUDA_VISIBLE_DEVICES": ""})
 
 def setup_finetune_dependencies():
-    command = ["pip", "install", "-e", "axolotl/[flash-attn,deepspeed]"]
-    return shell_cmd(command)
+    return "", None
+
+def close_finetune_dependencies():
+    return "", None
 
 def run_single_shell_cmd(command):
     res = subprocess.run(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -125,7 +129,7 @@ def run_single_gpu_finetune(device_count):
             out, err = subprocess.run(f"sed -i 's/flash_attention: true/flash_attention: false/' {config}", shell=True)
             if err != None:
                 return out, err
-        command = ["accelerate", "launch", "-m", "axolotl.cli.train", config,]
+        command = ["/workspace/bin/conda", "run", "-n" "axolotlenv", "accelerate", "launch", "-m", "axolotl.cli.train", config,]
         out, err = shell_cmd(command, env=command_envs)
         if err != None:
             errors.append(str(err))
@@ -154,7 +158,7 @@ def run_single_gpu_finetune(device_count):
 def run_multi_gpu_finetune(device_count):
     total_vram = get_vram()
     config = get_finetune_config(total_vram)
-    command = ["accelerate", "launch", "-m", "axolotl.cli.train", config]
+    command = ["/workspace/bin/conda", "run", "-n" "axolotlenv", "accelerate", "launch", "-m", "axolotl.cli.train", config]
     out, err = shell_cmd(command)
     if err != None:
         return None, err
@@ -228,7 +232,7 @@ def run_single_gpu_inference(device_count):
         command_envs = defaultdict(str)
         command_envs["CUDA_VISIBLE_DEVICES"] = f"{i}"
         command_envs["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
-        command = ["python3", "vllm/benchmarks/benchmark_throughput.py", 
+        command = ["/workspace/bin/conda", "run", "-n" "vllmenv", "python3", "vllm/benchmarks/benchmark_throughput.py", 
                    "--dataset=ShareGPT_V3_unfiltered_cleaned_split.json", f"--model={model}",
                     "--num-prompts=30", f"--max-model-len={max_model_len}",
                    "--device=cuda", "--enforce-eager", "--gpu-memory-utilization=0.95"]
@@ -269,7 +273,7 @@ def run_multi_gpu_inference(device_count):
     gpu_series_name = get_gpu_series_name()
     if device_count > 32:
         return None, f"Inference for devices with more than 32 GPUs not supported at once. Current GPU count: { device_count }"
-    command = ["python3", "vllm/benchmarks/benchmark_throughput.py", 
+    command = ["/workspace/bin/conda", "run", "-n" "vllmenv", "python3", "vllm/benchmarks/benchmark_throughput.py", 
             "--dataset=ShareGPT_V3_unfiltered_cleaned_split.json", f"--model={model}",
             "--num-prompts=30", f"--max-model-len={ max_model_len }", "--device=cuda", 
             f"--tensor-parallel-size={device_count_attn_heads}", "--enforce-eager", "--gpu-memory-utilization=0.95"]
@@ -357,7 +361,7 @@ def main():
             send_response(client, aws_topic_arn, {"errors": [f"Expected {expected_device_count} GPUs, but found {device_count} GPUs"]})
             return
 
-        logger.info("""Downloading dataset to run inference. This usually takes like 10 seconds or so. Slower downloads
+        logger.info("""Downloading dataset to run inference. This usually takes like a minute or so. Slower downloads
                     indicate network issues.""")
 
         download_dataset_out, download_dataset_errors = download_dataset()
@@ -366,16 +370,8 @@ def main():
             send_response(client, aws_topic_arn, {"errors": [download_dataset_errors]})
             return
 
-        logger.info("""Downloading inference dependencies from vllm using Python's pip package manager. 
-                    This usually takes a bit of time. So maintain patience.""")
+        logger.info("""Activating inference conda environment to run inference. Dependencies were downloaded at build time.""")
         payload = {}
-        setup_dependencies_out, setup_dependencies_errors = setup_inference_dependencies()
-        if setup_dependencies_errors != None:
-            logger.info("errored during inference dependencies installation")
-            logger.error(setup_dependencies_errors)
-            send_response(client, aws_topic_arn, {"errors": [setup_dependencies_errors]})
-            return
-
         ## inference starts
         if os.environ.get("RUN_INFERENCE", "true") == "true":
             logger.info("Running inference. This can be disabled by using the environment variable RUN_INFERENCE=false.")
@@ -405,17 +401,7 @@ def main():
         ## inference ends
 
         ### training
-        if os.environ.get("RUN_FINETUNE", "true") == "true":
-            logger.info("""Running finetune on the GPUs. First of all, installing pip dependencies.
-                         This can be disabled by using the environment variable RUN_FINETUNE=false.""")
-            setup_lora_dependencies_output, setup_finetune_dependencies_errors = setup_finetune_dependencies()
-            if setup_finetune_dependencies_errors != None:
-                logger.info("errored during finetune dependencies installation")
-                logger.error(setup_finetune_dependencies_errors)
-                payload["errors"] = [setup_finetune_dependencies_errors]
-                send_response(client, aws_topic_arn, payload)
-                return
-            
+        if os.environ.get("RUN_FINETUNE", "true") == "true":            
             logger.info("""The finetunes are intended to run completely i.e. on an entire dataset. To save some time, we are 
                         manually set the max_steps to 30.""")
             adjust_max_steps_err = adjust_max_steps()
@@ -426,6 +412,7 @@ def main():
                 send_response(client, aws_topic_arn, payload)
                 return
 
+            logger.info("""Preprocessing finetune dataset. This is done inside the same environment that the axolotl is run.""")
             preprocess_dataset_out, preprocess_dataset_err = preprocess_finetune_dataset()
             if preprocess_dataset_err != None:
                 logger.error(preprocess_dataset_err)
