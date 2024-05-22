@@ -22,15 +22,15 @@ RUN wget https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfilter
 
 RUN /workspace/bin/conda init bash
 
+RUN /workspace/bin/conda create -n vllmenv python=3.10 -y && \
+    /workspace/bin/conda run -n vllmenv pip install -r requirements_H100.txt && \
+    /workspace/bin/conda run -n vllmenv pip install -e vllm/ -v
+
 RUN /workspace/bin/conda create -n axolotlenv python=3.10 -y && \
     /workspace/bin/conda run -n axolotlenv pip install packaging torch ninja -v && \
     /workspace/bin/conda run -n axolotlenv pip install -e axolotl/[flash-attn,deepspeed] -v && \
     /workspace/bin/conda run -n axolotlenv pip install -r requirements_H100.txt && \
     /workspace/bin/conda run -n axolotlenv pip uninstall flash-attn -v -y && \
     FLASH_ATTENTION_FORCE_BUILD=TRUE /workspace/bin/conda run -n axolotlenv pip install flash-attn -v
-
-RUN /workspace/bin/conda create -n vllmenv python=3.10 -y && \
-    /workspace/bin/conda run -n vllmenv pip install -e vllm/ -v && \
-    /workspace/bin/conda run -n vllmenv pip install -r requirements_H100.txt
 
 CMD ["python3", "script.py"]
