@@ -158,7 +158,7 @@ def run_single_gpu_finetune(device_count):
 def run_multi_gpu_finetune(device_count):
     total_vram = get_vram()
     config = get_finetune_config(total_vram)
-    command = ["/workspace/bin/conda", "run", "-n" "axolotlenv", "accelerate", "launch", "-m", "axolotl.cli.train", config, "--deepspeed", "deepspeed_configs/zero1.json"]
+    command = ["/workspace/bin/conda", "run", "-n" "axolotlenv", "accelerate", "launch", "-m", "axolotl.cli.train", config, "--deepspeed", "axolotl/deepspeed_configs/zero1.json"]
     out, err = shell_cmd(command)
     if err != None:
         return None, err
